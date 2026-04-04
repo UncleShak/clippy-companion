@@ -16,16 +16,19 @@ export function activate(context: vscode.ExtensionContext) {
 	);
 }
 
-function getAllErrors(): vscode.Diagnostic[] {
-	const errors: vscode.Diagnostic[] = [];
+function getAllErrors(): { message: string, line: number }[] {
+	const errors: { message: string, line: number }[] = [];
 	for (const [, diagnostics] of vscode.languages.getDiagnostics()) {
 		for (const d of diagnostics) {
 			if (d.severity === vscode.DiagnosticSeverity.Error) {
-				errors.push(d);
+				errors.push({
+					message: d.message,
+					line: d.range.start.line + 1
+				});
 			}
 		}
 	}
-	return errors;
+	return errors.slice(0, 10);
 }
 
 class ClippyViewProvider implements vscode.WebviewViewProvider {
@@ -42,8 +45,6 @@ class ClippyViewProvider implements vscode.WebviewViewProvider {
 			enableScripts: true,
 			localResourceRoots: [vscode.Uri.joinPath(this._context.extensionUri, 'media')]
 		};
-
-		const htmlPath = path.join(this._context.extensionPath, 'media', 'clippy.html');
 		webviewView.webview.html = this.getHtml(webviewView.webview);
 
 		webviewView.webview.onDidReceiveMessage(async (message) => {
@@ -65,6 +66,17 @@ class ClippyViewProvider implements vscode.WebviewViewProvider {
 				jumpToError(message.line);
 			}
 		});
+
+		// Send initial errors after load
+		setTimeout(() => {
+			const errors = getAllErrors();
+			this.updateErrors(errors);
+		}, 1000);
+	}
+
+	updateErrors(errors: { message: string, line: number }[]) {
+		if (!this._view) { return; }
+		this._view.webview.postMessage({ command: 'errorsUpdated', errors });
 	}
 
 	getHtml(webview: vscode.Webview): string {
@@ -83,16 +95,6 @@ class ClippyViewProvider implements vscode.WebviewViewProvider {
 		html = html.replace('LIB_SRC', libUri.toString());
 		html = html.replace('AGENTS_SRC', agentsDirUri.toString() + '/');
 		return html;
-	}
-
-	updateErrors(errors: vscode.Diagnostic[]) {
-		if (!this._view) { return; }
-		const simplified = errors.slice(0, 5).map(e => ({
-			message: e.message,
-			line: (e.range.start.line + 1),
-			file: ''
-		}));
-		this._view.webview.postMessage({ command: 'errorsUpdated', errors: simplified });
 	}
 }
 
@@ -124,9 +126,8 @@ async function askClaude(apiKey: string, errorMessage: string): Promise<string> 
 }
 
 function jumpToError(line: number) {
-	const editors = vscode.window.visibleTextEditors;
-	if (editors.length === 0) { return; }
-	const editor = editors[0];
+	const editor = vscode.window.activeTextEditor;
+	if (!editor) { return; }
 	const position = new vscode.Position(line - 1, 0);
 	editor.selection = new vscode.Selection(position, position);
 	editor.revealRange(new vscode.Range(position, position));
