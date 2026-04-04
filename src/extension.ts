@@ -1,0 +1,114 @@
+import * as vscode from 'vscode';
+import * as fs from 'fs';
+import * as path from 'path';
+
+export function activate(context: vscode.ExtensionContext) {
+	const provider = new ClippyViewProvider(context);
+	context.subscriptions.push(
+		vscode.window.registerWebviewViewProvider('clippyView', provider)
+	);
+
+	context.subscriptions.push(
+		vscode.languages.onDidChangeDiagnostics(() => {
+			const errors = getAllErrors();
+			provider.updateErrors(errors);
+		})
+	);
+}
+
+function getAllErrors(): vscode.Diagnostic[] {
+	const errors: vscode.Diagnostic[] = [];
+	for (const [, diagnostics] of vscode.languages.getDiagnostics()) {
+		for (const d of diagnostics) {
+			if (d.severity === vscode.DiagnosticSeverity.Error) {
+				errors.push(d);
+			}
+		}
+	}
+	return errors;
+}
+
+class ClippyViewProvider implements vscode.WebviewViewProvider {
+	private _view?: vscode.WebviewView;
+	private _context: vscode.ExtensionContext;
+
+	constructor(context: vscode.ExtensionContext) {
+		this._context = context;
+	}
+
+	resolveWebviewView(webviewView: vscode.WebviewView) {
+		this._view = webviewView;
+		webviewView.webview.options = { enableScripts: true };
+
+		const htmlPath = path.join(this._context.extensionPath, 'media', 'clippy.html');
+		webviewView.webview.html = fs.readFileSync(htmlPath, 'utf8');
+
+		webviewView.webview.onDidReceiveMessage(async (message) => {
+			if (message.command === 'saveKey') {
+				await this._context.secrets.store('anthropicKey', message.key);
+				webviewView.webview.postMessage({ command: 'keysaved' });
+			}
+			if (message.command === 'getKey') {
+				const key = await this._context.secrets.get('anthropicKey');
+				webviewView.webview.postMessage({ command: 'keyResult', hasKey: !!key });
+			}
+			if (message.command === 'askClippy') {
+				const key = await this._context.secrets.get('anthropicKey');
+				if (!key) { return; }
+				const reply = await askClaude(key, message.error);
+				webviewView.webview.postMessage({ command: 'clippyReply', text: reply });
+			}
+			if (message.command === 'jumpToError') {
+				jumpToError(message.line);
+			}
+		});
+	}
+
+	updateErrors(errors: vscode.Diagnostic[]) {
+		if (!this._view) { return; }
+		const simplified = errors.slice(0, 5).map(e => ({
+			message: e.message,
+			line: (e.range.start.line + 1),
+			file: ''
+		}));
+		this._view.webview.postMessage({ command: 'errorsUpdated', errors: simplified });
+	}
+}
+
+async function askClaude(apiKey: string, errorMessage: string): Promise<string> {
+	try {
+		const prompt = "You are Clippy, the retro Microsoft Office assistant, helping a developer. " +
+			"They have this error: " + errorMessage + ". " +
+			"React in Clippy's personality - friendly, encouraging - but do NOT give the fix. " +
+			"Just nudge them toward what to look at. Max 2 sentences. End with a paperclip emoji.";
+
+		const response = await fetch('https://api.anthropic.com/v1/messages', {
+			method: 'POST',
+			headers: {
+				'x-api-key': apiKey,
+				'anthropic-version': '2023-06-01',
+				'content-type': 'application/json'
+			},
+			body: JSON.stringify({
+				model: 'claude-haiku-4-5-20251001',
+				max_tokens: 150,
+				messages: [{ role: 'user', content: prompt }]
+			})
+		});
+		const data = await response.json() as any;
+		return data.content?.[0]?.text ?? "Something needs your attention!";
+	} catch {
+		return "My brain glitched! But check that error!";
+	}
+}
+
+function jumpToError(line: number) {
+	const editors = vscode.window.visibleTextEditors;
+	if (editors.length === 0) { return; }
+	const editor = editors[0];
+	const position = new vscode.Position(line - 1, 0);
+	editor.selection = new vscode.Selection(position, position);
+	editor.revealRange(new vscode.Range(position, position));
+}
+
+export function deactivate() {}
