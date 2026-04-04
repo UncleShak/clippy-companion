@@ -38,10 +38,13 @@ class ClippyViewProvider implements vscode.WebviewViewProvider {
 
 	resolveWebviewView(webviewView: vscode.WebviewView) {
 		this._view = webviewView;
-		webviewView.webview.options = { enableScripts: true };
+		webviewView.webview.options = {
+			enableScripts: true,
+			localResourceRoots: [vscode.Uri.joinPath(this._context.extensionUri, 'media')]
+		};
 
 		const htmlPath = path.join(this._context.extensionPath, 'media', 'clippy.html');
-		webviewView.webview.html = fs.readFileSync(htmlPath, 'utf8');
+		webviewView.webview.html = this.getHtml(webviewView.webview);
 
 		webviewView.webview.onDidReceiveMessage(async (message) => {
 			if (message.command === 'saveKey') {
@@ -62,6 +65,24 @@ class ClippyViewProvider implements vscode.WebviewViewProvider {
 				jumpToError(message.line);
 			}
 		});
+	}
+
+	getHtml(webview: vscode.Webview): string {
+		const htmlPath = path.join(this._context.extensionPath, 'media', 'clippy.html');
+		let html = fs.readFileSync(htmlPath, 'utf8');
+		const jqueryUri = webview.asWebviewUri(
+			vscode.Uri.joinPath(this._context.extensionUri, 'media', 'jquery.min.js')
+		);
+		const libUri = webview.asWebviewUri(
+			vscode.Uri.joinPath(this._context.extensionUri, 'media', 'clippy-lib.js')
+		);
+		const agentsDirUri = webview.asWebviewUri(
+			vscode.Uri.joinPath(this._context.extensionUri, 'media')
+		);
+		html = html.replace('JQUERY_SRC', jqueryUri.toString());
+		html = html.replace('LIB_SRC', libUri.toString());
+		html = html.replace('AGENTS_SRC', agentsDirUri.toString() + '/');
+		return html;
 	}
 
 	updateErrors(errors: vscode.Diagnostic[]) {
