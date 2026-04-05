@@ -64,7 +64,7 @@ Built with the original Clippy sprite assets from [clippyjs](https://github.com/
 
 ## Feedback & Issues
 
-Found a bug or have a suggestion? Open an issue on [GitHub](https://github.com/YourName/clippy-companion).
+Found a bug or have a suggestion? Open an issue on [GitHub](https://github.com/UncleShak/clippy-companion).
 
 ---
 
