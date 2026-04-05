@@ -54,7 +54,20 @@ class ClippyViewProvider implements vscode.WebviewViewProvider {
 			}
 			if (message.command === 'getKey') {
 				const key = await this._context.secrets.get('anthropicKey');
-				webviewView.webview.postMessage({ command: 'keyResult', hasKey: !!key });
+				const savedMode = this._context.globalState.get('smartMode', false);
+				const soundEnabled = this._context.globalState.get('soundEnabled', false);
+				webviewView.webview.postMessage({
+					command: 'keyResult',
+					hasKey: !!key,
+					savedMode: savedMode,
+					soundEnabled: soundEnabled
+				});
+			}
+			if (message.command === 'saveMode') {
+				await this._context.globalState.update('smartMode', message.mode);
+			}
+			if (message.command === 'saveSound') {
+				await this._context.globalState.update('soundEnabled', message.enabled);
 			}
 			if (message.command === 'askClippy') {
 				const key = await this._context.secrets.get('anthropicKey');
@@ -67,7 +80,6 @@ class ClippyViewProvider implements vscode.WebviewViewProvider {
 			}
 		});
 
-		// Send initial errors after load
 		setTimeout(() => {
 			const errors = getAllErrors();
 			this.updateErrors(errors);

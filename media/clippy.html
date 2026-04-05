@@ -13,38 +13,8 @@ body {
   overflow: hidden;
 }
 
-#setup {
-  display: none;
-  flex-direction: column;
-  gap: 8px;
-}
-#setup h3 { font-size: 13px; }
-#setup p { font-size: 11px; opacity: 0.6; line-height: 1.5; }
-input[type=password] {
-  width: 100%; padding: 6px; font-size: 12px;
-  border-radius: 4px;
-  border: 1px solid var(--vscode-input-border);
-  background: var(--vscode-input-background);
-  color: var(--vscode-input-foreground);
-}
-#saveBtn, #clearBtn {
-  padding: 6px; font-size: 12px;
-  border-radius: 4px; border: none;
-  cursor: pointer; width: 100%;
-}
-#saveBtn {
-  background: var(--vscode-button-background);
-  color: var(--vscode-button-foreground);
-}
-#clearBtn {
-  background: transparent;
-  border: 1px solid var(--vscode-button-background);
-  color: var(--vscode-foreground);
-}
-
-/* Main layout - fixed height sections */
 #main {
-  display: none;
+  display: flex;
   flex-direction: column;
   gap: 8px;
 }
@@ -80,7 +50,6 @@ input[type=password] {
   color: #555;
 }
 
-/* This is the key - a fixed height box where Clippy floats */
 #clippy-stage {
   width: 100%;
   height: 130px;
@@ -92,21 +61,6 @@ input[type=password] {
   font-size: 11px;
   opacity: 0.55;
   text-align: center;
-}
-
-#bottom-row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  width: 100%;
-  font-size: 11px;
-}
-#mode-row { display: flex; align-items: center; gap: 6px; }
-#mode-label { opacity: 0.6; }
-#setup-link {
-  opacity: 0.4;
-  cursor: pointer;
-  text-decoration: underline;
 }
 
 #error-nav {
@@ -121,24 +75,56 @@ input[type=password] {
   color: var(--vscode-button-foreground);
 }
 
-/* Override clippyjs positioning to stay in our stage */
-.clippy-container {
-  position: absolute !important;
-  bottom: 0 !important;
-  left: 50% !important;
-  transform: translateX(-50%) !important;
+#bottom-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  font-size: 11px;
+  gap: 6px;
+}
+.toggle-item {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  opacity: 0.7;
+}
+
+#api-panel {
+  display: none;
+  flex-direction: column;
+  gap: 6px;
+  background: var(--vscode-input-background);
+  border: 1px solid var(--vscode-input-border);
+  border-radius: 6px;
+  padding: 8px;
+  font-size: 11px;
+}
+#api-panel p { opacity: 0.7; line-height: 1.5; }
+#api-panel input {
+  width: 100%; padding: 5px; font-size: 11px;
+  border-radius: 4px;
+  border: 1px solid var(--vscode-input-border);
+  background: var(--vscode-sideBar-background);
+  color: var(--vscode-input-foreground);
+}
+#api-panel-row { display: flex; gap: 6px; }
+#api-panel-row button {
+  flex: 1; padding: 4px; font-size: 11px;
+  border-radius: 4px; border: none; cursor: pointer;
+}
+#apiSaveBtn {
+  background: var(--vscode-button-background);
+  color: var(--vscode-button-foreground);
+}
+#apiCancelBtn {
+  background: transparent;
+  border: 1px solid var(--vscode-button-background) !important;
+  color: var(--vscode-foreground);
 }
 </style>
 </head>
 <body>
-
-<div id="setup">
-  <h3>Hey! I am Clippy!</h3>
-  <p>I watch your code for errors.<br/>Add your Anthropic API key for Smart Mode:</p>
-  <input id="apiKeyInput" type="password" placeholder="sk-ant-..." />
-  <button id="saveBtn">Save Key - Smart Mode</button>
-  <button id="clearBtn">Skip - Classic Mode (free)</button>
-</div>
 
 <div id="main">
   <div id="bubble">
@@ -151,12 +137,23 @@ input[type=password] {
     <button id="prevBtn">Previous</button>
     <button id="nextBtn">Next</button>
   </div>
-  <div id="bottom-row">
-    <div id="mode-row">
-      <input type="checkbox" id="modeToggle"/>
-      <label for="modeToggle" id="mode-label">Classic Mode</label>
+  <div id="api-panel">
+    <p>Enter your Anthropic API key to enable Smart Mode:</p>
+    <input id="apiKeyInput" type="password" placeholder="sk-ant-..." />
+    <div id="api-panel-row">
+      <button id="apiSaveBtn">Save & Enable</button>
+      <button id="apiCancelBtn">Cancel</button>
     </div>
-    <span id="setup-link">Change API key</span>
+  </div>
+  <div id="bottom-row">
+    <div class="toggle-item">
+      <input type="checkbox" id="modeToggle"/>
+      <label for="modeToggle" id="mode-label">Classic</label>
+    </div>
+    <div class="toggle-item">
+      <input type="checkbox" id="soundToggle"/>
+      <label for="soundToggle">Sound</label>
+    </div>
   </div>
 </div>
 
@@ -167,102 +164,204 @@ input[type=password] {
   var currentErrors = [];
   var currentIndex = 0;
   var smartMode = false;
+  var soundEnabled = false;
+  var hasApiKey = false;
   var clippyAgent = null;
+  var hadErrors = false;
+
+  var originalPlay = HTMLAudioElement.prototype.play;
+  HTMLAudioElement.prototype.play = function() { return Promise.resolve(); };
+
+  // Idle animations to cycle through when no errors
+  var idleAnims = ['IdleFingerTap', 'IdleHeadScratch', 'IdleSideToSide', 'IdleEyeBrowRaise', 'IdleSnooze', 'LookUp', 'LookDown', 'LookLeft', 'LookRight'];
+  var idleTimer = null;
+
+  function playAnim(name) {
+    if (clippyAgent) { clippyAgent.play(name); }
+  }
+
+  function startIdleCycle() {
+    stopIdleCycle();
+    idleTimer = setInterval(function() {
+      if (currentErrors.length === 0 && clippyAgent) {
+        var anim = idleAnims[Math.floor(Math.random() * idleAnims.length)];
+        playAnim(anim);
+      }
+    }, 8000);
+  }
+
+  function stopIdleCycle() {
+    if (idleTimer) { clearInterval(idleTimer); idleTimer = null; }
+  }
 
   vscode.postMessage({ command: 'getKey' });
 
   clippy.BASE_PATH = 'AGENTS_SRC';
   clippy.load('Clippy', function(agent) {
-      clippyAgent = agent;
-      agent.show();
-      agent.animate();
-      // Move Clippy into our stage after he appears
-      setTimeout(function() {
-          var stage = document.getElementById('clippy-stage');
-          var clippyEl = document.querySelector('div.clippy');
-          var balloonEl = document.querySelector('div.clippy-balloon');
-          if (clippyEl && stage) {
-              stage.appendChild(clippyEl);
-              clippyEl.style.position = 'absolute';
-              clippyEl.style.bottom = '0';
-              clippyEl.style.top = 'auto';
-              clippyEl.style.left = '50%';
-              clippyEl.style.transform = 'translateX(-50%)';
-          }
-          if (balloonEl) {
-              balloonEl.style.display = 'none';
-          }
-      }, 600);
+    clippyAgent = agent;
+    agent.show();
+
+    // Greet on first load
+    playAnim('Wave');
+
+    setTimeout(function() {
+      var stage = document.getElementById('clippy-stage');
+      var clippyEl = document.querySelector('div.clippy');
+      var balloonEl = document.querySelector('div.clippy-balloon');
+      if (clippyEl && stage) {
+        stage.appendChild(clippyEl);
+        clippyEl.style.position = 'absolute';
+        clippyEl.style.bottom = '0';
+        clippyEl.style.top = 'auto';
+        clippyEl.style.left = '50%';
+        clippyEl.style.transform = 'translateX(-50%)';
+      }
+      if (balloonEl) { balloonEl.style.display = 'none'; }
+
+      // Start idle cycle after greeting
+      setTimeout(startIdleCycle, 3000);
+    }, 600);
+
+    // Keep Clippy in his stage
+    setInterval(function() {
+      var stage = document.getElementById('clippy-stage');
+      var clippyEl = document.querySelector('div.clippy');
+      if (clippyEl && stage) {
+        if (clippyEl.parentNode !== stage) { stage.appendChild(clippyEl); }
+        clippyEl.style.position = 'absolute';
+        clippyEl.style.bottom = '0';
+        clippyEl.style.top = 'auto';
+        clippyEl.style.left = '50%';
+        clippyEl.style.transform = 'translateX(-50%)';
+      }
+    }, 1000);
   });
 
   window.addEventListener('message', function(e) {
     var msg = e.data;
+
     if (msg.command === 'keyResult') {
-      if (msg.hasKey) { showMain(true); } else { showSetup(); }
+      hasApiKey = msg.hasKey;
+      soundEnabled = msg.soundEnabled || false;
+      document.getElementById('soundToggle').checked = soundEnabled;
+      if (soundEnabled) { HTMLAudioElement.prototype.play = originalPlay; }
+      var restoredMode = msg.hasKey ? (msg.savedMode || false) : false;
+      setMode(restoredMode);
     }
-    if (msg.command === 'keysaved') { showMain(true); }
+
+    if (msg.command === 'keysaved') {
+      hasApiKey = true;
+      document.getElementById('api-panel').style.display = 'none';
+      playAnim('Congratulate');
+      setMode(true);
+    }
+
     if (msg.command === 'errorsUpdated') { handleErrors(msg.errors); }
-    if (msg.command === 'clippyReply') { showBubble(msg.text); }
+
+    if (msg.command === 'clippyReply') {
+      showBubble(msg.text);
+      playAnim('Explain');
+    }
   });
 
-  function showSetup() {
-    document.getElementById('setup').style.display = 'flex';
-    document.getElementById('main').style.display = 'none';
+  function setMode(isSmartMode) {
+    smartMode = isSmartMode && hasApiKey;
+    document.getElementById('modeToggle').checked = smartMode;
+    document.getElementById('mode-label').textContent = smartMode ? 'Smart' : 'Classic';
   }
 
-  function showMain(hasKey) {
-    document.getElementById('setup').style.display = 'none';
-    document.getElementById('main').style.display = 'flex';
-    smartMode = hasKey;
-    document.getElementById('modeToggle').checked = hasKey;
-    document.getElementById('mode-label').textContent = hasKey ? 'Smart Mode' : 'Classic Mode';
-  }
+  document.getElementById('modeToggle').onchange = function(e) {
+    if (e.target.checked) {
+      if (hasApiKey) {
+        smartMode = true;
+        document.getElementById('mode-label').textContent = 'Smart';
+        vscode.postMessage({ command: 'saveMode', mode: true });
+        playAnim('GetTechy');
+      } else {
+        document.getElementById('api-panel').style.display = 'flex';
+        document.getElementById('apiKeyInput').focus();
+        playAnim('Thinking');
+        e.target.checked = false;
+      }
+    } else {
+      smartMode = false;
+      document.getElementById('mode-label').textContent = 'Classic';
+      document.getElementById('api-panel').style.display = 'none';
+      vscode.postMessage({ command: 'saveMode', mode: false });
+    }
+  };
 
-  document.getElementById('saveBtn').onclick = function() {
+  document.getElementById('apiSaveBtn').onclick = function() {
     var key = document.getElementById('apiKeyInput').value.trim();
     if (!key) { return; }
+    playAnim('Processing');
     vscode.postMessage({ command: 'saveKey', key: key });
   };
-  document.getElementById('clearBtn').onclick = function() { showMain(false); };
-  document.getElementById('modeToggle').onchange = function(e) {
-    smartMode = e.target.checked;
-    document.getElementById('mode-label').textContent = smartMode ? 'Smart Mode' : 'Classic Mode';
+
+  document.getElementById('apiCancelBtn').onclick = function() {
+    document.getElementById('api-panel').style.display = 'none';
+    document.getElementById('apiKeyInput').value = '';
+    document.getElementById('modeToggle').checked = false;
   };
-  document.getElementById('setup-link').onclick = function() { showSetup(); };
+
+  document.getElementById('soundToggle').onchange = function(e) {
+    soundEnabled = e.target.checked;
+    HTMLAudioElement.prototype.play = soundEnabled ? originalPlay : function() { return Promise.resolve(); };
+    vscode.postMessage({ command: 'saveSound', enabled: soundEnabled });
+  };
+
   document.getElementById('bubble').onclick = function() {
     if (currentErrors.length === 0) { return; }
     vscode.postMessage({ command: 'jumpToError', line: currentErrors[currentIndex].line });
   };
+
   document.getElementById('prevBtn').onclick = function() {
     currentIndex = (currentIndex - 1 + currentErrors.length) % currentErrors.length;
+    playAnim('Searching');
     displayError();
   };
+
   document.getElementById('nextBtn').onclick = function() {
     currentIndex = (currentIndex + 1) % currentErrors.length;
+    playAnim('Searching');
     displayError();
   };
 
   function handleErrors(errors) {
     currentErrors = errors;
     currentIndex = 0;
+
     if (errors.length === 0) {
       document.getElementById('bubble').style.display = 'none';
       document.getElementById('error-nav').style.display = 'none';
       document.getElementById('status').textContent = 'No errors - just vibing';
-      if (clippyAgent) { clippyAgent.animate(); }
+      // Celebrate if we just fixed all errors
+      if (hadErrors) {
+        playAnim('Congratulate');
+        hadErrors = false;
+        setTimeout(startIdleCycle, 2000);
+      }
       return;
     }
+
+    // New errors appeared
+    if (!hadErrors) {
+      stopIdleCycle();
+      hadErrors = true;
+    }
+
     document.getElementById('error-nav').style.display = errors.length > 1 ? 'flex' : 'none';
     displayError();
   }
 
   function displayError() {
     var error = currentErrors[currentIndex];
-    if (clippyAgent) { clippyAgent.play('Alert'); }
+    playAnim('Alert');
     var count = currentErrors.length;
     document.getElementById('status').textContent = count + ' error(s) - ' + (currentIndex + 1) + ' of ' + count;
     if (smartMode) {
       showBubble('Hmm, let me think...');
+      playAnim('Thinking');
       vscode.postMessage({ command: 'askClippy', error: error.message });
     } else {
       var msgs = [
