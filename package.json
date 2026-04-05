@@ -3,7 +3,7 @@
   "displayName": "Clippy Companion",
   "description": "Your retro coding buddy who reacts to errors",
   "version": "0.0.1",
-  "publisher": "undefined_publisher",
+  "publisher": "UncleShak",
   "engines": {
     "vscode": "^1.85.0"
   },
