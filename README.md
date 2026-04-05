@@ -4,7 +4,7 @@ Your retro coding buddy is back — and this time he's watching your code.
 
 Clippy Companion brings the iconic Microsoft Office assistant to VS Code as a live error companion. He lives in your Explorer panel, reacts to your errors in real time, and keeps you company while you code.
 
-![Clippy Companion in action](media/Screenshot 2026-04-05 173440.png)
+![Clippy Companion in action](media/clippy_preview.png)
 
 ---
 
